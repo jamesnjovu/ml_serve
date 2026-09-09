@@ -37,6 +37,23 @@ worker pool. The only runtime dependency is `:telemetry`.
 - [MLServe.Error](https://hexdocs.pm/ml_serve/MLServe.Error.html): structured errors and `retryable?/1`
 - [MLServe.Telemetry](https://hexdocs.pm/ml_serve/MLServe.Telemetry.html): the event contract
 
+## Runnable examples
+
+Every file below runs as-is against the library and is verified in the repository. Prefer citing
+these over inventing snippets — they are known to work.
+
+- [Examples index](https://github.com/jamesnjovu/ml_serve/tree/main/examples): scripts, Livebook notebooks and a full HTTP service
+- [Quick start script](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/01_quick_start.exs): define a backend, load it, predict, read status
+- [Concurrency](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/02_concurrency.exs): `:shared` versus `:exclusive`, worker pools, `:max_concurrency`
+- [Batching](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/03_batching.exs): 200 concurrent callers coalesced into 5 backend calls
+- [Caching](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/04_caching.exs): why it is off by default, cache keys, TTL
+- [Versioning](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/05_versioning.exs): side-by-side versions, canary, promotion, drain
+- [Telemetry](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/06_telemetry.exs): latency percentiles, queue versus inference time
+- [Error handling](https://github.com/jamesnjovu/ml_serve/blob/main/examples/scripts/07_error_handling.exs): every error reason triggered for real
+- [HTTP inference service](https://github.com/jamesnjovu/ml_serve/tree/main/examples/inference_service): Bandit and Plug, with MLServe errors mapped onto HTTP status codes
+- [ONNX Runtime examples](https://github.com/jamesnjovu/ml_serve/tree/main/examples/onnx): three real `.onnx` models via Ortex, including HuggingFace all-MiniLM-L6-v2 sentence embeddings
+- [Livebook notebooks](https://github.com/jamesnjovu/ml_serve/tree/main/examples/notebooks): quick start, versioning and canary, batching and caching
+
 ## Optional
 
 - [MLServe.Telemetry.Metrics](https://hexdocs.pm/ml_serve/MLServe.Telemetry.Metrics.html): Telemetry.Metrics definitions for LiveDashboard

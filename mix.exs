@@ -1,7 +1,7 @@
 defmodule MLServe.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/jamesnjovu/ml_serve"
 
   def project do
@@ -46,12 +46,14 @@ defmodule MLServe.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   # Shown on hex.pm and indexed by Hex search, Google, and LLM crawlers. Lead with the concrete
-  # nouns people actually search for.
+  # nouns people actually search for: "Elixir" and "machine learning", not "BEAM", which is
+  # insider vocabulary that appears in almost none of the queries this needs to rank for.
   defp description do
     """
-    Production machine-learning inference for the BEAM. OTP supervision, worker pools, dynamic
-    batching, caching, telemetry, model versioning and canary rollout around any ML backend —
-    Nx, Bumblebee, ONNX, Python or a remote service.
+    Serve machine learning models in Elixir. Production ML inference for Phoenix and the BEAM:
+    OTP supervision, worker pools, dynamic batching, caching, telemetry, model versioning and
+    zero-downtime canary rollout around any backend — Nx, Bumblebee, ONNX, Python or a remote
+    service.
     """
   end
 

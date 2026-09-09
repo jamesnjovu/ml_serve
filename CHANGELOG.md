@@ -5,6 +5,25 @@ All notable changes to the MLServe library will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-09
+
+### Fixed
+
+- **`MLServe.Security.digest/2` raised on Elixir 1.14 through 1.16**, which broke every
+  `:checksum` verification on three of the five Elixir versions this library supports. The
+  chunked read went through `File.stream!/2`, whose second argument only came to mean a byte
+  count in Elixir 1.17 — before that it is still `modes`, so an integer raised
+  `FunctionClauseError` in `File.normalize_modes/2`. There is no single `File.stream!` call that
+  is correct on 1.14 and free of a contract violation on 1.18, so hashing now reads the file with
+  `File.open/2` and `:file.read/2`, which have been stable across every supported version.
+  Streaming behaviour and peak memory are unchanged.
+
+- **`MLServe.Security.validate_path/2` reported `:enoent` instead of `:outside_root`** for a
+  traversal whose target happened not to exist, making the result depend on the filesystem rather
+  than on the path. Containment is now decided on the expanded path before the file is touched
+  and re-checked after symlink resolution, so a path outside `:model_root` is always rejected as
+  `:outside_root` — and MLServe no longer stats a caller-supplied path outside the root.
+
 ## [0.1.0] - 2026-08-24
 
 Initial release.

@@ -24,6 +24,12 @@ Every team that puts a model into a Phoenix app rebuilds that layer by hand. MLS
 layer, and nothing else. It does not train, it does not own a tensor type, and it is not another
 LLM API wrapper.
 
+**Works with any Elixir ML backend** — [Nx](https://hexdocs.pm/nx) and `Nx.Serving`,
+[Bumblebee](https://hexdocs.pm/bumblebee), ONNX Runtime via [Ortex](https://hexdocs.pm/ortex),
+scikit-learn or PyTorch exports, a Python process over a port, or a remote HTTP model server. If
+it can be reached from a function, MLServe can supervise, pool, batch, cache, measure and version
+it.
+
 ```elixir
 MLServe.predict(:fraud_detection, %{
   amount: 1500.50,
@@ -293,6 +299,52 @@ callback and stacktrace before surfacing it.
 - Backend modules are verified to implement `MLServe.Model` at load time, not assumed.
 - **MLServe never calls `binary_to_term/1`, `Code.eval_*`, or loads a NIF from a model artifact.**
   A model file is data. Supplying one is not a way to execute code.
+
+## Common questions
+
+### How do I serve an ONNX model in Elixir?
+
+Wrap an `Ortex` session in a `MLServe.Model` backend and MLServe supplies the pool, batching,
+checksum verification and telemetry around it. There is a complete runnable example in
+[`examples/onnx`](https://github.com/jamesnjovu/ml_serve/tree/main/examples/onnx) — including HuggingFace
+[`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) doing real
+semantic search — and a full implementation in
+[Creating a Model Backend](guides/creating-a-backend.md#onnx).
+
+### How do I run Bumblebee or `Nx.Serving` in production Phoenix?
+
+Declare the backend `concurrency: :shared`. Inference then runs *in the Phoenix request process*
+with state read from `:persistent_term` — no worker pool, no message copies of your tensors, and
+no serialisation point. See [Concurrency](guides/concurrency.md) and
+[Phoenix Integration](guides/phoenix-integration.md).
+
+### Is this an Elixir alternative to TensorFlow Serving or TorchServe?
+
+For the serving concerns, yes — supervision, pooling, dynamic batching, caching, metrics,
+versioning and canary rollout — but in-process on the BEAM instead of as a separate service you
+deploy, scale and monitor. You keep one deployable and lose a network hop. It does not bring its
+own model runtime; you point it at Nx, ONNX Runtime, or whatever you already use.
+
+### Can I deploy a new model version without a deploy?
+
+Yes — that is the point of `MLServe.load_model/2`, `MLServe.canary/3` and `MLServe.promote/2`.
+Load the new version beside the running one, send it a percentage of traffic, compare per-version
+telemetry, then promote with a single ETS write. In-flight requests finish on the version they
+started on. See [Model Versioning](guides/model-versioning.md).
+
+### How do I test application code that calls a model?
+
+Point the model at `MLServe.Backend.Static` in `config/test.exs`. Your suite then exercises the
+real routing, caching, telemetry and error handling with no model file, no ML runtime and no
+mocking library — see [`examples/inference_service`](https://github.com/jamesnjovu/ml_serve/tree/main/examples/inference_service), whose tests do
+exactly this.
+
+### What does it cost on the hot path?
+
+One lock-free ETS read in the calling process. `MLServe.ModelRegistry` owns the catalog but is
+never in the request path, and the only MLServe process involved in a prediction is the worker
+running inference — none at all for `:shared` backends. The single runtime dependency is
+`:telemetry`.
 
 ## Documentation
 
