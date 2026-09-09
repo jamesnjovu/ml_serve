@@ -16,8 +16,8 @@ defmodule MLServe.Security do
   ## What is checked
 
     * The path resolves inside the configured `:model_root` — `..` traversal and absolute paths
-      pointing elsewhere are rejected, and symlinks are resolved before the check so a link cannot
-      escape the root.
+      pointing elsewhere are rejected before the file is touched, and the check is repeated after
+      symlink resolution so a link inside the root cannot escape it.
     * The file exists, is a regular file, and is readable.
     * The file is no larger than `:max_model_bytes`.
     * When a `:checksum` is configured, the file's digest matches.
@@ -47,7 +47,14 @@ defmodule MLServe.Security do
     root = opts |> Keyword.get(:root, MLServe.Config.model_root()) |> Path.expand()
     max_bytes = Keyword.get(opts, :max_bytes, MLServe.Config.max_model_bytes())
 
-    with {:ok, resolved} <- resolve(path, root),
+    expanded = expand(path, root)
+
+    # Containment is checked twice. Once on the expanded path, so a traversal is rejected as
+    # :outside_root without MLServe ever stat'ing a caller-supplied path outside the root — and
+    # deterministically, rather than as :enoent whenever the target happens not to exist. Then
+    # again after symlink resolution, so a link inside the root cannot point out of it.
+    with :ok <- contained?(expanded, root),
+         {:ok, resolved} <- resolve(expanded),
          :ok <- contained?(resolved, root),
          {:ok, size} <- regular_file(resolved),
          :ok <- within_size(size, max_bytes),
@@ -149,12 +156,12 @@ defmodule MLServe.Security do
 
   # Private Functions
 
-  defp resolve(path, root) do
-    expanded =
-      if Path.type(path) == :absolute, do: Path.expand(path), else: Path.expand(path, root)
+  defp expand(path, root) do
+    if Path.type(path) == :absolute, do: Path.expand(path), else: Path.expand(path, root)
+  end
 
-    # Resolve symlinks before the containment check, otherwise a link inside the root pointing at
-    # /etc would pass. `:file.read_link_all` fails on non-links, which is the common case.
+  # `:file.read_link_all` fails on non-links, which is the common case.
+  defp resolve(expanded) do
     case File.stat(expanded) do
       {:ok, _} -> {:ok, real_path(expanded)}
       {:error, reason} -> {:error, {:invalid_path, reason}}

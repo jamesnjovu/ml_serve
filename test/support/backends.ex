@@ -115,6 +115,10 @@ defmodule MLServe.Test.Backends do
     @moduledoc "Returns a bare value instead of an ok/error tuple."
     @behaviour MLServe.Model
 
+    # Violating the `predict/2` contract is the entire point of this backend, so the mismatch
+    # dialyzer reports here is the fixture working as intended, not a defect to fix.
+    @dialyzer {:nowarn_function, predict: 2}
+
     @impl true
     def capabilities, do: %{concurrency: :shared, load: :once}
 

@@ -25,9 +25,17 @@ defmodule MLServe.SecurityTest do
       assert {:ok, _resolved} = Security.validate_path(model, root: root)
     end
 
+    # Containment is decided on the expanded path, so the result does not depend on whether the
+    # traversal target happens to exist — `System.tmp_dir!()` is `/tmp` on Linux but
+    # `/var/folders/...` on macOS, and this asserted :enoent on the latter.
     test "rejects traversal out of the root", %{root: root} do
       assert Security.validate_path("../../etc/passwd", root: root) ==
-               {:error, {:invalid_path, :enoent}}
+               {:error, {:invalid_path, :outside_root}}
+    end
+
+    test "rejects traversal out of the root even when the target does not exist", %{root: root} do
+      assert Security.validate_path("../../nowhere/at/all.bin", root: root) ==
+               {:error, {:invalid_path, :outside_root}}
     end
 
     test "rejects an absolute path outside the root", %{root: root} do

@@ -142,8 +142,7 @@ defmodule MLServe.Case do
   > `assert_telemetry/3` does this for you.
   """
   @spec attach_telemetry([[atom()]]) :: reference()
-  def attach_telemetry(events \\ nil) do
-    events = events || MLServe.Telemetry.events()
+  def attach_telemetry(events \\ MLServe.Telemetry.events()) do
     ref = :telemetry_test.attach_event_handlers(self(), events)
     ExUnit.Callbacks.on_exit(fn -> :telemetry.detach(ref) end)
     ref
