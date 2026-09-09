@@ -73,23 +73,32 @@ defmodule MLServe.Test.Backends do
   end
 
   defmodule Slow do
-    @moduledoc "Exclusive backend that sleeps `:delay` milliseconds before answering."
+    @moduledoc """
+    Exclusive backend that sleeps `:delay` milliseconds before answering.
+
+    With `notify: pid` it sends `{:predict_started, self()}` before sleeping. Because
+    `concurrency: :exclusive` runs `predict/2` in the worker, that message carries the worker's
+    own pid — so a test can act on a request that is provably in flight instead of inferring it
+    from a counter and then racing the scheduler.
+    """
     @behaviour MLServe.Model
 
     @impl true
     def capabilities, do: %{concurrency: :exclusive, load: :once}
 
     @impl true
-    def load(config), do: {:ok, Keyword.get(config, :delay, 50)}
+    def load(config), do: {:ok, {Keyword.get(config, :delay, 50), Keyword.get(config, :notify)}}
 
     @impl true
-    def predict(delay, input) do
+    def predict({delay, notify}, input) do
+      if notify, do: send(notify, {:predict_started, self()})
       Process.sleep(delay)
       {:ok, input}
     end
 
     @impl true
-    def batch_predict(delay, inputs) do
+    def batch_predict({delay, notify}, inputs) do
+      if notify, do: send(notify, {:predict_started, self()})
       Process.sleep(delay)
       {:ok, inputs}
     end

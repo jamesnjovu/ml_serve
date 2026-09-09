@@ -25,6 +25,9 @@ defmodule MLServe.Security do
 
   alias MLServe.Error
 
+  # Model artifacts are routinely gigabytes; hashing in chunks keeps peak memory flat.
+  @digest_chunk_bytes 2 * 1024 * 1024
+
   @typedoc "A digest algorithm and its expected lowercase hex value."
   @type checksum :: {:sha256 | :sha512, String.t()}
 
@@ -122,14 +125,35 @@ defmodule MLServe.Security do
   @spec digest(String.t(), :sha256 | :sha512) ::
           {:ok, String.t()} | {:error, {:invalid_path, atom()}}
   def digest(path, algorithm \\ :sha256) do
-    path
-    |> File.stream!(2 * 1024 * 1024)
-    |> Enum.reduce(:crypto.hash_init(algorithm), &:crypto.hash_update(&2, &1))
-    |> :crypto.hash_final()
-    |> Base.encode16(case: :lower)
-    |> then(&{:ok, &1})
-  rescue
-    error in File.Error -> {:error, {:invalid_path, error.reason}}
+    # Read the file directly rather than through File.stream!/2,3. Its signature moved between
+    # the Elixir versions this library supports: before 1.17 the second argument is `modes`, so
+    # `File.stream!(path, bytes)` raises FunctionClauseError, while on 1.17+ the three-argument
+    # form is `(path, line_or_bytes, modes)` — so no single File.stream! call is both correct on
+    # 1.14 and free of a contract violation on 1.18. :file.read/2 has been stable throughout.
+    case File.open(path, [:read, :binary, :raw]) do
+      {:ok, file} ->
+        try do
+          hash(file, :crypto.hash_init(algorithm))
+        after
+          File.close(file)
+        end
+
+      {:error, reason} ->
+        {:error, {:invalid_path, reason}}
+    end
+  end
+
+  defp hash(file, state) do
+    case :file.read(file, @digest_chunk_bytes) do
+      {:ok, chunk} ->
+        hash(file, :crypto.hash_update(state, chunk))
+
+      :eof ->
+        {:ok, state |> :crypto.hash_final() |> Base.encode16(case: :lower)}
+
+      {:error, reason} ->
+        {:error, {:invalid_path, reason}}
+    end
   end
 
   @doc """

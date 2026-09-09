@@ -218,7 +218,13 @@ defmodule MLServe.ConcurrencyTest do
     end
 
     test "a worker killed mid-request returns an error instead of killing the caller" do
-      name = load!(backend: Backends.Slow, workers: 1, config: [delay: 300], timeout: 5_000)
+      name =
+        load!(
+          backend: Backends.Slow,
+          workers: 1,
+          config: [delay: 500, notify: self()],
+          timeout: 5_000
+        )
 
       caller =
         Task.async(fn ->
@@ -226,15 +232,28 @@ defmodule MLServe.ConcurrencyTest do
           MLServe.predict(name, :slow, timeout: 5_000)
         end)
 
-      eventually(fn -> match?({:ok, %{in_flight: 1}}, MLServe.model_status(name)) end)
-      Process.exit(MLServe.Worker.whereis(name, "1.0.0", 0), :kill)
+      # Wait for the worker to report that it is *inside* predict/2. Inferring it from an
+      # in-flight counter and then killing left a window where a busy runner could deschedule
+      # this process for longer than the backend's sleep, letting the request succeed.
+      assert_receive {:predict_started, worker}, 5_000
+      Process.exit(worker, :kill)
 
       # The caller must survive. A GenServer.call to a worker that is killed while serving exits
       # the *caller* with :killed unless every exit is caught — which would take a Phoenix request
       # process down with the worker and destroy the isolation this library exists to provide.
       result = Task.await(caller, 5_000)
 
-      assert result == {:error, :model_not_ready}
+      # Surviving the await at all is the assertion that matters: an uncaught exit would have
+      # taken this Task down with the worker, and in production that is a Phoenix request process
+      # dying because a model crashed.
+      #
+      # Both replies below are correct, and which one arrives is a race between the supervisor
+      # restarting the worker and the dispatcher's retry (see @worker_attempts in
+      # MLServe.Dispatcher). The retry either finds a fresh worker and serves the request, or
+      # finds none registered yet and reports :model_not_ready. Asserting only the second made
+      # this test fail roughly one run in twenty.
+      assert result in [{:ok, :slow}, {:error, :model_not_ready}],
+             "caller got #{inspect(result)}; expected a successful retry or :model_not_ready"
     end
 
     test "a crashed model server restarts the whole subtree and reloads the model" do
