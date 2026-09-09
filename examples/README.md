@@ -8,7 +8,7 @@ this repository — no published package required.
 | **[`scripts/`](scripts)** | Seven self-contained scripts. One command each, no setup. |
 | **[`notebooks/`](notebooks)** | Three Livebook notebooks. Same ground, interactive. |
 | **[`inference_service/`](inference_service)** | A real HTTP service — Bandit, Plug, JSON. |
-| **[`onnx/`](onnx)** | Two real `.onnx` models through ONNX Runtime. |
+| **[`onnx/`](onnx)** | Three `.onnx` models through ONNX Runtime, including a real HuggingFace one. |
 
 None of this ships in the Hex package; it lives here on GitHub.
 
@@ -76,11 +76,12 @@ Everything above uses arithmetic in place of a model, which keeps the mechanics 
 [Ortex](https://hex.pm/packages/ortex).
 
 ```bash
-elixir examples/onnx/fraud_detection.exs   # a convenient export
-elixir examples/onnx/transformer.exs       # an awkward one
+elixir examples/onnx/fraud_detection.exs      # a convenient export
+elixir examples/onnx/transformer.exs          # an awkward one
+elixir examples/onnx/sentence_embeddings.exs  # a real, trained one
 ```
 
-They are a pair on purpose. The first is shaped the way tutorials assume — a dynamic batch
+They are a set on purpose. The first is shaped the way tutorials assume — a dynamic batch
 dimension, one input, one output — and covers what only matters once a model is a file: `:path`
 containment against `:model_root`, `:checksum` enforcement, one session shared across the pool
 via `load: :once`, and a batch that becomes a single `Ortex.run/2`.
@@ -90,8 +91,16 @@ batch dimension pinned to `1`, a sequence length pinned to `128`, two inputs of 
 and eleven outputs. It shows the case tutorials skip — a backend that must *not* implement
 `batch_predict/2`, and must own padding, truncation and the attention mask itself.
 
-The first run of either compiles Ortex's Rust NIF, which takes a few minutes; later runs are
-instant. Both model files are committed, and the small one ships with the
+The third is [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+straight off the HuggingFace Hub, and it is the one you would actually deploy. Trained weights,
+so the output means something — a paraphrase scores 0.973 and unrelated sentences score zero —
+ending in real semantic search over a corpus. It brings a WordPiece tokenizer inside the backend
+(verified token-for-token against HuggingFace's own), mean pooling with an attention mask, and
+the production artifact story: the 90 MB model is fetched at first run and checksum-verified
+rather than committed.
+
+The first run of any of them compiles Ortex's Rust NIF, which takes a few minutes; later runs are
+instant. The two small model files are committed, and the smallest ships with the
 [script that generated it](onnx/generate_model.py).
 
 ## Against the published package

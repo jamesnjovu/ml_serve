@@ -5,28 +5,32 @@ without dragging in an ML runtime. These two are real: `.onnx` files on disk, lo
 Runtime via [Ortex](https://hex.pm/packages/ortex), producing genuine inference.
 
 ```bash
-elixir examples/onnx/fraud_detection.exs   # a convenient export
-elixir examples/onnx/transformer.exs       # an awkward one
+elixir examples/onnx/fraud_detection.exs      # a convenient export
+elixir examples/onnx/transformer.exs          # an awkward one
+elixir examples/onnx/sentence_embeddings.exs  # a real, trained one
 ```
 
-The first run of either compiles Ortex's Rust NIF and downloads ONNX Runtime — a few minutes.
-Later runs start immediately.
+The first run of any of them compiles Ortex's Rust NIF and downloads ONNX Runtime — a few
+minutes. Later runs start immediately.
 
-They are a pair on purpose. Almost every ONNX tutorial uses a model shaped like the first one and
-leaves you unprepared for the second, which is what real PyTorch exports tend to look like.
+They are a set on purpose. Almost every ONNX tutorial uses a model shaped like the first and
+leaves you unprepared for the second, which is what real PyTorch exports often look like. The
+third is the one you would actually deploy.
 
-| | `fraud_detection.onnx` | `gptneox_Opset18.onnx` |
-| --- | --- | --- |
-| Batch dimension | dynamic | **pinned to 1** |
-| Sequence | n/a | **pinned to 128** |
-| Inputs | 1 | 2, different dtypes |
-| Outputs | 1 | 11 (logits + KV cache) |
-| `batch_predict/2` | implemented | **deliberately absent** |
-| `:batching` | `max_size: 32` | would be actively harmful |
-| Size | 323 bytes | 1.8 MB |
+| | `fraud_detection.onnx` | `gptneox_Opset18.onnx` | `all-MiniLM-L6-v2` |
+| --- | --- | --- | --- |
+| Trained? | hand-written weights | **no — random** | **yes** |
+| Batch dimension | dynamic | **pinned to 1** | dynamic |
+| Sequence | n/a | **pinned to 128** | dynamic, capped at 256 |
+| Inputs | 1 | 2 | 3 |
+| Outputs | 1 | 11 (logits + KV cache) | 1 |
+| `batch_predict/2` | implemented | **deliberately absent** | implemented |
+| `:batching` | `max_size: 32` | would be actively harmful | `max_size: 16` |
+| Preprocessing | feature scaling | padding + mask | **WordPiece tokenizer** |
+| Size | 323 bytes | 1.8 MB | 90 MB, **not committed** |
 
-Callers of both write `MLServe.predict(name, input)`. Every difference above is a property of the
-export, declared once by the backend, and never leaked into a call site.
+Callers of all three write `MLServe.predict(name, input)`. Every difference above is a property
+of the export, declared once by the backend, and never leaked into a call site.
 
 ---
 
@@ -144,6 +148,68 @@ samples or reads a clock must not be cached, which is why MLServe leaves caching
 There is none: the model ships no vocabulary file, so there is nothing honest to tokenize with.
 The example uses bytes modulo the vocabulary size, which produces valid in-range token ids and is
 all the shapes require. A real backend loads its tokenizer in `load/1` beside the session.
+
+---
+
+## `sentence_embeddings.exs` — a model you would actually deploy
+
+[`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2),
+the most-downloaded sentence embedding model on the Hub, served through ONNX Runtime. This one is
+*trained*, so the output means something:
+
+```
+           [0]     [1]     [2]     [3]     [4]
+[0]    1.000   0.973   0.537  -0.021  -0.044   The cat sits on the mat
+[1]    0.973   1.000   0.545  -0.027  -0.020   A cat is sitting on a mat
+[2]    0.537   0.545   1.000   0.023  -0.046   A feline rests upon a rug
+[3]   -0.021  -0.027   0.023   1.000   0.028   Quantum physics is complicated
+[4]   -0.044  -0.020  -0.046   0.028   1.000   Machine learning models need training data
+```
+
+A paraphrase scores 0.973; the same idea in entirely different words lands at 0.54; unrelated
+sentences sit at zero. The example then does the thing embeddings are for — ranking a corpus
+against a query by cosine similarity:
+
+```
+"How do I keep a crashed process alive?"
+  0.432  Supervision trees restart failed processes
+  0.294  GenServer is the standard stateful process abstraction
+
+"What temperature for bread?"
+  0.466  Preheat the oven to 220 degrees before baking
+  0.251  Sourdough needs a starter and long fermentation
+```
+
+**The 90 MB model is not committed.** It is fetched from the Hub on first run into `.models/`
+(gitignored) and verified against a pinned SHA-256 — which is the artifact story from
+[`guides/production-deployment.md`](../../guides/production-deployment.md) rather than a shortcut
+around it. MLServe re-verifies the model at load via `:checksum`; the example verifies
+`vocab.txt` itself, because a half-written tokenizer is a far more confusing failure than a loud
+one.
+
+**Tokenization lives in the backend.** BERT WordPiece is implemented in ~70 lines from the
+model's own `vocab.txt` — lowercasing, accent stripping, punctuation splitting and greedy
+longest-match subwording. It was verified token-for-token against HuggingFace's `tokenizers`
+across accents (`naïve café résumé`), contractions (`Don't panic, it's fine!`), subword splits
+(`supercalifragilisticexpialidocious`), numerals (`COVID-19 vaccines (2021) cost $19.99`) and
+casing. Real projects reach for `Bumblebee` or the `tokenizers` NIF; doing it by hand here keeps
+the example free of a second Rust dependency and makes the point that preprocessing belongs
+*inside* a backend, where no caller can get it subtly wrong.
+
+**Pooling is a decision the backend owns.** The graph emits per-token hidden states
+`[batch, seq, 384]`. A *sentence* embedding is mean pooling over non-padding tokens followed by
+L2 normalisation — that is `1_Pooling/config.json` in the Hub repo, not something the ONNX graph
+does. Callers get a unit vector they can dot together and never learn that pooling was a choice.
+
+**Both dimensions are dynamic**, which is what `transformer.exs` is not. So `batch_predict/2` is
+implemented and means it, padding to the longest sequence in *this* batch rather than a fixed
+export width. 64 concurrent single-sentence callers become 3 forward passes:
+
+```
+64 concurrent callers in 125.5ms
+backend invocations      3
+rows                     64
+```
 
 ---
 

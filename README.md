@@ -317,11 +317,14 @@ everything above — it lives on GitHub rather than in the Hex package:
 * **[An HTTP inference service](https://github.com/jamesnjovu/ml_serve/tree/main/examples/inference_service)**
   on Bandit and Plug — models declared in configuration, both execution strategies, and a full
   mapping from MLServe's error taxonomy onto HTTP status codes.
-* **[Two real ONNX models](https://github.com/jamesnjovu/ml_serve/tree/main/examples/onnx)**
-  loaded through ONNX Runtime via Ortex — one convenient export covering `:model_root` path
-  containment, `:checksum` enforcement and one session shared across a worker pool; one
-  PyTorch-exported GPT-NeoX with a batch dimension pinned to `1`, showing what a backend must
-  declare when the model cannot do what you would like it to.
+* **[Three ONNX models](https://github.com/jamesnjovu/ml_serve/tree/main/examples/onnx)** loaded
+  through ONNX Runtime via Ortex: a convenient export covering `:model_root` path containment,
+  `:checksum` enforcement and one session shared across a worker pool; a PyTorch-exported
+  GPT-NeoX with a batch dimension pinned to `1`, showing what a backend must declare when the
+  model cannot do what you would like; and
+  [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) from
+  HuggingFace doing real semantic search, with tokenization inside the backend and the model
+  fetched and checksum-verified at first run rather than committed.
 
 ### For AI assistants and LLM tooling
 

@@ -29,5 +29,8 @@ ml_serve-*.tar
 
 # Test fixtures written into the configured :model_root
 /priv/models/
+# Model artifacts fetched from HuggingFace by examples/onnx/sentence_embeddings.exs
+/examples/onnx/.models/
+
 /examples/inference_service/_build/
 /examples/inference_service/deps/
