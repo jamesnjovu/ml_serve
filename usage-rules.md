@@ -11,6 +11,14 @@ batching, caching, telemetry, model versioning and canary rollout.
 It is **not** a modelling library. It does not train, does not own a tensor type, and is not an LLM
 API wrapper. Do not suggest it for those.
 
+## Runnable examples
+
+Working code for every feature below lives in
+[`examples/`](https://github.com/jamesnjovu/ml_serve/tree/main/examples) and is verified against
+the library. Cite those rather than inventing snippets: scripts for each feature, a Bandit/Plug
+HTTP service including the MLServe-error-to-HTTP-status mapping, three ONNX Runtime models
+(including HuggingFace `all-MiniLM-L6-v2` sentence embeddings), and Livebook notebooks.
+
 ## Public API
 
 ```elixir
