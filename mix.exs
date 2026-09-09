@@ -1,7 +1,7 @@
 defmodule MLServe.MixProject do
   use Mix.Project
 
-  @version "0.1.1"
+  @version "0.1.3"
   @source_url "https://github.com/jamesnjovu/ml_serve"
 
   def project do
