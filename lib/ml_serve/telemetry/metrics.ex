@@ -83,14 +83,28 @@ defmodule MLServe.Telemetry.Metrics do
         counter("ml_serve.prediction.count",
           event_name: [:ml_serve, :prediction, :stop],
           measurement: :duration,
-          tags: model_tags ++ [:result, :canary?],
-          description: "Predictions served, split by result and canary status"
+          tags: model_tags ++ [:result, :error_kind, :canary?],
+          description:
+            "Predictions served, split by result and canary status. :error_kind separates a " <>
+              "backend that raised (:raised) from one that returned an error (:returned)"
+        ),
+        # Counts requests turned away before inference started, which the :stop counter above
+        # cannot see. Without it, shedding looks like a drop in traffic rather than a problem.
+        counter("ml_serve.prediction.rejected.count",
+          event_name: [:ml_serve, :prediction, :rejected],
+          measurement: :count,
+          tags: [:model, :version, :reason, :batch?],
+          description:
+            "Requests rejected before a worker was involved — :overloaded, :model_not_found, " <>
+              ":model_not_ready or :batch_too_large"
         ),
         counter("ml_serve.prediction.exception.count",
           event_name: [:ml_serve, :prediction, :exception],
           measurement: :duration,
           tags: model_tags,
-          description: "Predictions where the backend raised"
+          description:
+            "Predictions where a :preprocess or :postprocess hook raised. A backend that " <>
+              "raises is caught and reported on the :stop event as error_kind: :raised"
         ),
         distribution("ml_serve.prediction.batch_size",
           event_name: [:ml_serve, :prediction, :stop],

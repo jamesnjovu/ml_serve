@@ -25,7 +25,8 @@ defmodule MLServe.Telemetry.Logger do
   @groups %{
     prediction: [
       [:ml_serve, :prediction, :stop],
-      [:ml_serve, :prediction, :exception]
+      [:ml_serve, :prediction, :exception],
+      [:ml_serve, :prediction, :rejected]
     ],
     model: [
       [:ml_serve, :model, :load],
@@ -74,9 +75,13 @@ defmodule MLServe.Telemetry.Logger do
   # Private Functions
 
   defp format([:ml_serve, :prediction, :stop], measurements, metadata) do
-    "[ml_serve] #{model(metadata)} #{metadata.result} in #{ms(measurements.duration)}ms" <>
+    "[ml_serve] #{model(metadata)} #{metadata.result}#{kind(metadata)} in #{ms(measurements.duration)}ms" <>
       " (inference #{ms(measurements.inference_duration)}ms, queue #{ms(measurements.queue_duration)}ms" <>
       ", batch #{measurements.batch_size}#{cached(metadata)}#{canary(metadata)})"
+  end
+
+  defp format([:ml_serve, :prediction, :rejected], _measurements, metadata) do
+    "[ml_serve] #{model(metadata)} rejected: #{inspect(metadata.reason)}"
   end
 
   defp format([:ml_serve, :prediction, :exception], measurements, metadata) do
@@ -108,8 +113,14 @@ defmodule MLServe.Telemetry.Logger do
       " after #{ms(measurements.wait_duration)}ms"
   end
 
+  defp model(%{model: model, version: nil}), do: inspect(model)
   defp model(%{model: model, version: version}), do: "#{inspect(model)} v#{version}"
   defp model(%{model: model}), do: inspect(model)
+
+  # A backend that raised and one that returned an error both log as "error"; the distinction is
+  # the difference between a bug and the model working, so it belongs on the line.
+  defp kind(%{error_kind: :raised}), do: " (backend raised)"
+  defp kind(_metadata), do: ""
 
   defp cached(%{cached?: true}), do: ", cached"
   defp cached(_metadata), do: ""
