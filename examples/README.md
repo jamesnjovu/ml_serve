@@ -8,6 +8,7 @@ this repository — no published package required.
 | **[`scripts/`](scripts)** | Seven self-contained scripts. One command each, no setup. |
 | **[`notebooks/`](notebooks)** | Three Livebook notebooks. Same ground, interactive. |
 | **[`inference_service/`](inference_service)** | A real HTTP service — Bandit, Plug, JSON. |
+| **[`onnx/`](onnx)** | Two real `.onnx` models through ONNX Runtime. |
 
 None of this ships in the Hex package; it lives here on GitHub.
 
@@ -67,6 +68,31 @@ curl -X POST localhost:4000/predict/fraud_detection \
 
 It has [its own README](inference_service/README.md) and a test suite that stubs the model with
 `MLServe.Backend.Static` while exercising the real router, error mapping, caching and telemetry.
+
+## Real ONNX models
+
+Everything above uses arithmetic in place of a model, which keeps the mechanics visible.
+[`onnx/`](onnx) is the exception: actual `.onnx` files loaded through ONNX Runtime via
+[Ortex](https://hex.pm/packages/ortex).
+
+```bash
+elixir examples/onnx/fraud_detection.exs   # a convenient export
+elixir examples/onnx/transformer.exs       # an awkward one
+```
+
+They are a pair on purpose. The first is shaped the way tutorials assume — a dynamic batch
+dimension, one input, one output — and covers what only matters once a model is a file: `:path`
+containment against `:model_root`, `:checksum` enforcement, one session shared across the pool
+via `load: :once`, and a batch that becomes a single `Ortex.run/2`.
+
+The second is a PyTorch-exported GPT-NeoX with the constraints real exports actually have: a
+batch dimension pinned to `1`, a sequence length pinned to `128`, two inputs of different dtypes
+and eleven outputs. It shows the case tutorials skip — a backend that must *not* implement
+`batch_predict/2`, and must own padding, truncation and the attention mask itself.
+
+The first run of either compiles Ortex's Rust NIF, which takes a few minutes; later runs are
+instant. Both model files are committed, and the small one ships with the
+[script that generated it](onnx/generate_model.py).
 
 ## Against the published package
 

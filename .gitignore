@@ -21,7 +21,12 @@ ml_serve-*.tar
 /.elixir_ls/
 /.lexical/
 .DS_Store
-mix.lock
+
+# The example app's lockfile. Scoped deliberately: a bare `mix.lock` here also matches the
+# root lockfile, which is tracked on purpose — the CI matrix pins against it, and the canary
+# row deletes it explicitly to test resolving without one.
+/examples/*/mix.lock
+
 # Test fixtures written into the configured :model_root
 /priv/models/
 /examples/inference_service/_build/

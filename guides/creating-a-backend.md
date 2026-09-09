@@ -293,6 +293,15 @@ config :ml_serve,
 `:path` is validated against `:model_root` before your `load/1` sees it, and the checksum is
 verified. See [Production Deployment](production-deployment.md).
 
+> #### Runnable version {: .tip}
+>
+> [`examples/onnx`](https://github.com/jamesnjovu/ml_serve/tree/main/examples/onnx) is this
+> backend as a script you can actually execute, against a committed 323-byte `.onnx` file:
+> `elixir examples/onnx/fraud_detection.exs`. It also shows the checksum being enforced and a
+> traversal path rejected, rather than only asserting that they are. Alongside it,
+> `transformer.exs` runs a PyTorch-exported GPT-NeoX whose batch dimension is pinned to 1 —
+> the case where a backend must *not* implement `batch_predict/2`.
+
 ---
 
 ## A Python model server over a port {: #python}

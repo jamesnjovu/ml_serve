@@ -179,3 +179,5 @@ MLServe.predict(:fraud_detection, %{amount: 1.0})
   service, including the MLServe-error-to-HTTP-status mapping worth stealing.
 * **`examples/scripts`** — seven runnable scripts covering concurrency, telemetry and the full
   error taxonomy.
+* **[`examples/onnx`](../onnx)** — two real `.onnx` models through ONNX Runtime, including a
+  PyTorch-exported transformer whose batch dimension is pinned to `1`.
