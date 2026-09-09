@@ -1,0 +1,26 @@
+# Compiled artifacts
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+
+# Hex package tarball
+ml_serve-*.tar
+
+# Temporary files, for example, from tests
+/tmp/
+
+# Dialyzer PLT cache
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
+
+# Editors / tooling
+/.idea/
+/.elixir_ls/
+/.lexical/
+.DS_Store
+
+# Test fixtures written into the configured :model_root
+/priv/models/

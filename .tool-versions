@@ -1,0 +1,5 @@
+# Match the CI lint job (.github/workflows/ci.yml). The formatter's output changes between
+# Elixir minor versions, so a mismatch here makes `mix format` locally disagree with
+# `mix format --check-formatted` in CI.
+erlang 26.2.5
+elixir 1.18.4-otp-26

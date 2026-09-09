@@ -1,0 +1,45 @@
+# MLServe
+
+> Production machine-learning inference for the BEAM. An Elixir library providing the OTP runtime
+> layer around any ML model: supervision, worker pools, dynamic batching, caching, telemetry,
+> model versioning and canary rollout. It does not train models and is not an LLM API wrapper.
+
+MLServe keys models by `{name, version}` and runs each loaded version in its own supervision
+subtree. Model lookup on the prediction path is a single lock-free ETS read in the calling
+process, so MLServe adds no serialisation point between a request and the model. Backends declare
+whether they are safe to call concurrently: `:shared` backends run in the caller with state in
+`:persistent_term` and start no processes at all, while `:exclusive` backends use a supervised
+worker pool. The only runtime dependency is `:telemetry`.
+
+## Documentation
+
+- [Overview and README](https://hexdocs.pm/ml_serve/readme.html): what it is, why it exists, quick start
+- [API reference](https://hexdocs.pm/ml_serve/MLServe.html): the full public API
+- [Usage rules](https://github.com/jamesnjovu/ml_serve/blob/main/usage-rules.md): condensed rules and common mistakes
+- [Getting Started](https://hexdocs.pm/ml_serve/getting-started.html): from an empty project to a serving model
+- [Architecture](https://hexdocs.pm/ml_serve/architecture.html): supervision tree, hot path, and the reasoning behind both
+- [Creating a Model Backend](https://hexdocs.pm/ml_serve/creating-a-backend.html): complete Nx, Nx.Serving, Bumblebee, ONNX/Ortex, Python-port and HTTP implementations
+- [Running Inference](https://hexdocs.pm/ml_serve/running-inference.html): options, hooks, caching, errors
+- [Batch Inference](https://hexdocs.pm/ml_serve/batch-inference.html): explicit batching versus dynamic batching
+- [Concurrency](https://hexdocs.pm/ml_serve/concurrency.html): shared versus exclusive, pool sizing, admission control
+- [Telemetry](https://hexdocs.pm/ml_serve/telemetry.html): events, measurements, metrics, alerting
+- [Model Versioning](https://hexdocs.pm/ml_serve/model-versioning.html): canary rollout, promotion, graceful drain
+- [Phoenix Integration](https://hexdocs.pm/ml_serve/phoenix-integration.html): controllers, status codes, readiness probes, LiveView
+- [Oban Integration](https://hexdocs.pm/ml_serve/oban-integration.html): retry semantics, batch jobs, queue sizing
+- [Production Deployment](https://hexdocs.pm/ml_serve/production-deployment.html): artifacts, security, sizing, deploys, alerts
+
+## Core modules
+
+- [MLServe](https://hexdocs.pm/ml_serve/MLServe.html): the public API
+- [MLServe.Model](https://hexdocs.pm/ml_serve/MLServe.Model.html): the backend behaviour
+- [MLServe.Backend.Function](https://hexdocs.pm/ml_serve/MLServe.Backend.Function.html): serve any function as a model
+- [MLServe.Backend.Static](https://hexdocs.pm/ml_serve/MLServe.Backend.Static.html): fixed result, for testing applications
+- [MLServe.Error](https://hexdocs.pm/ml_serve/MLServe.Error.html): structured errors and `retryable?/1`
+- [MLServe.Telemetry](https://hexdocs.pm/ml_serve/MLServe.Telemetry.html): the event contract
+
+## Optional
+
+- [MLServe.Telemetry.Metrics](https://hexdocs.pm/ml_serve/MLServe.Telemetry.Metrics.html): Telemetry.Metrics definitions for LiveDashboard
+- [MLServe.Telemetry.Logger](https://hexdocs.pm/ml_serve/MLServe.Telemetry.Logger.html): dependency-free event logging
+- [Source](https://github.com/jamesnjovu/ml_serve)
+- [Changelog](https://github.com/jamesnjovu/ml_serve/blob/main/CHANGELOG.md)

@@ -1,0 +1,77 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      docs_only:
+        description: "Republish docs without a version bump"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish to Hex
+    runs-on: ubuntu-latest
+    environment: hex
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.4"
+          otp-version: "26.2.5"
+
+      - run: mix deps.get
+      - run: mix compile
+
+      - name: Tag must match the version in mix.exs
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(mix run --no-start -e 'IO.puts(Mix.Project.config()[:version])' | tail -n1)"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag does not match mix.exs version $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Verify the tree is clean
+        run: |
+          MIX_ENV=test mix deps.get
+          MIX_ENV=test mix lint
+          MIX_ENV=test mix test
+
+      - name: Publish docs only
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.docs_only }}
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish docs --yes
+
+      - name: Publish package
+        if: ${{ github.event_name == 'push' }}
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish --yes
+
+      # The publish workflow parses these `## [version]` headings, so the CHANGELOG format is
+      # load-bearing, not decorative.
+      - name: Extract release notes from the CHANGELOG
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          cat release_notes.md
+
+      - uses: softprops/action-gh-release@v2
+        if: ${{ github.event_name == 'push' }}
+        with:
+          body_path: release_notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
