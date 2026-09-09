@@ -5,6 +5,41 @@ All notable changes to the MLServe library will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`[:ml_serve, :prediction, :rejected]`.** Requests turned away before a span opens —
+  `:overloaded`, `:model_not_found`, `:model_not_ready` and `{:batch_too_large, max}` — emitted
+  no telemetry at all, so load shedding was invisible: a model rejecting half its traffic showed
+  up as *fewer* predictions at an unchanged error rate, which is the shape of a healthy system.
+  Measurements `count` and `batch_size`; metadata `model`, `reason`, `batch?` and `version`.
+  Exported as `ml_serve.prediction.rejected.count`.
+
+- **`:error_kind` on `[:ml_serve, :prediction, :stop]`.** `:raised` when the backend threw and
+  MLServe converted it to a `MLServe.BackendError`, `:returned` when the backend deliberately
+  returned `{:error, reason}`, `nil` on success. The two mean opposite things operationally and
+  were previously indistinguishable. Added to the tags of `ml_serve.prediction.count`, and shown
+  by `MLServe.Telemetry.Logger` as `error (backend raised)`.
+
+### Fixed
+
+- **`[:ml_serve, :prediction, :exception]` was documented as the backend-crash event but never
+  fired for one.** `MLServe.Backend` catches backend exceptions at the boundary and converts
+  them, so the span never sees a raise — meaning `ml_serve.prediction.exception.count` sat
+  permanently at zero. The event is real (a `:preprocess` or `:postprocess` hook raising is not
+  caught), so it stays; the documentation and the metric description now say what actually
+  triggers it, and the backend case is reported through `:error_kind` above.
+
+### Changed
+
+- The release workflow now runs the same test matrix as CI via a reusable workflow, instead of
+  testing a single Elixir version. The previous arrangement is how a bug invisible on 1.17+
+  reached Hex in 0.1.0: the release gate was strictly weaker than the merge gate.
+
+- CI runs every example script and the example service's test suite. `README.md`, `llms.txt` and
+  `usage-rules.md` all present that code as verified, which was true only by hand until now.
+
 ## [0.1.3] - 2026-09-09
 
 > Supersedes 0.1.1 and 0.1.2, which were tagged but never published: each tag pointed at a commit

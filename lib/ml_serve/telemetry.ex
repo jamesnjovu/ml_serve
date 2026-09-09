@@ -50,6 +50,7 @@ defmodule MLServe.Telemetry do
   | `canary?` | whether canary routing chose this version |
   | `cached?` | whether the result came from the cache (`:stop` only) |
   | `result` | `:ok` or `:error` (`:stop` only) |
+  | `error_kind` | `:stop` only. `nil` when `result: :ok`; `:raised` when the backend threw and MLServe converted it to a `MLServe.BackendError`; `:returned` when the backend deliberately returned `{:error, reason}`. Alert on `:raised` — that is a bug in the model, not the model doing its job. |
 
   `version` together with `canary?` is what makes a canary rollout decidable: your metrics
   backend can compare error rate and latency per version without any extra plumbing.
@@ -96,6 +97,7 @@ defmodule MLServe.Telemetry do
       @prediction ++ [:start],
       @prediction ++ [:stop],
       @prediction ++ [:exception],
+      @prediction ++ [:rejected],
       @model ++ [:load],
       @model ++ [:unload],
       @cache ++ [:hit],
@@ -136,6 +138,7 @@ defmodule MLServe.Telemetry do
         metadata
         |> Map.merge(Map.get(extra, :metadata, %{}))
         |> Map.put(:result, outcome(result))
+        |> Map.put(:error_kind, error_kind(result))
       )
 
       result
@@ -152,6 +155,12 @@ defmodule MLServe.Telemetry do
 
         :erlang.raise(kind, reason, __STACKTRACE__)
     end
+  end
+
+  @doc false
+  @spec rejected(map(), pos_integer()) :: :ok
+  def rejected(metadata, batch_size) do
+    :telemetry.execute(@prediction ++ [:rejected], %{count: 1, batch_size: batch_size}, metadata)
   end
 
   @doc false
@@ -181,4 +190,11 @@ defmodule MLServe.Telemetry do
   defp outcome({:ok, _}), do: :ok
   defp outcome(:ok), do: :ok
   defp outcome(_), do: :error
+
+  # A backend that raised and a backend that returned {:error, reason} both arrive here as an
+  # error tuple, but they mean opposite things operationally: the first is a bug in the model,
+  # the second is the model doing its job. Only the wrapper tells them apart.
+  defp error_kind({:error, {:backend_error, _}}), do: :raised
+  defp error_kind({:error, _}), do: :returned
+  defp error_kind(_), do: nil
 end

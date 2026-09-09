@@ -45,12 +45,12 @@ defmodule MLServe.Dispatcher do
   """
   @spec predict(atom(), term(), keyword()) :: {:ok, term()} | {:error, term()}
   def predict(name, input, opts) do
-    with {:ok, route} <- ModelRegistry.route(name, opts) do
-      guarded(route, fn ->
-        Telemetry.span(metadata(route, false, 1), fn ->
-          run_single(route, input, opts)
-        end)
-      end)
+    case ModelRegistry.route(name, opts) do
+      {:ok, route} ->
+        admitted(route, false, 1, fn -> run_single(route, input, opts) end)
+
+      {:error, reason} ->
+        reject(name, nil, reason, false, 1)
     end
   end
 
@@ -59,13 +59,17 @@ defmodule MLServe.Dispatcher do
   """
   @spec batch_predict(atom(), [term()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def batch_predict(name, inputs, opts) when is_list(inputs) do
-    with {:ok, route} <- ModelRegistry.route(name, opts),
-         :ok <- check_batch_size(route, inputs) do
-      guarded(route, fn ->
-        Telemetry.span(metadata(route, true, length(inputs)), fn ->
-          run_batch(route, inputs, opts)
-        end)
-      end)
+    size = length(inputs)
+
+    case ModelRegistry.route(name, opts) do
+      {:ok, route} ->
+        case check_batch_size(route, inputs) do
+          :ok -> admitted(route, true, size, fn -> run_batch(route, inputs, opts) end)
+          {:error, reason} -> reject(name, route.version, reason, true, size)
+        end
+
+      {:error, reason} ->
+        reject(name, nil, reason, true, size)
     end
   end
 
@@ -77,7 +81,13 @@ defmodule MLServe.Dispatcher do
 
   # in_flight must be decremented on every exit path, including a hook raising in user code,
   # or the counter drifts upward and eventually the model refuses all traffic as :overloaded.
-  defp guarded(route, fun) do
+  # Admission control, then the span. Both entry points need exactly this pair, and inlining it
+  # twice nests the callbacks deep enough to hurt.
+  defp admitted(route, batch?, size, fun) do
+    guarded(route, batch?, size, fn -> Telemetry.span(metadata(route, batch?, size), fun) end)
+  end
+
+  defp guarded(route, batch?, batch_size, fun) do
     case Route.admit(route) do
       :ok ->
         try do
@@ -91,8 +101,20 @@ defmodule MLServe.Dispatcher do
         end
 
       {:error, :overloaded} ->
-        {:error, :overloaded}
+        reject(route.name, route.version, :overloaded, batch?, batch_size)
     end
+  end
+
+  # Requests turned away before a span opens emit no :start/:stop pair, because nothing started.
+  # Without this event they would be invisible: a model shedding half its traffic would show up
+  # as *fewer* predictions at an unchanged error rate, which is the shape of a healthy system.
+  defp reject(name, version, reason, batch?, batch_size) do
+    Telemetry.rejected(
+      %{model: name, version: version, reason: reason, batch?: batch?},
+      batch_size
+    )
+
+    {:error, reason}
   end
 
   # Single prediction

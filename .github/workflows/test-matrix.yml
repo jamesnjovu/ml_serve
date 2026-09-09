@@ -1,0 +1,71 @@
+# The test matrix, extracted so CI and Publish run the *same* one.
+#
+# It used to live only in ci.yml while publish.yml tested a single version. That is how a bug
+# invisible on Elixir 1.17+ reached Hex in 0.1.0: the release gate was strictly weaker than the
+# merge gate, so any version-specific defect shipped by construction. Two copies of a matrix
+# drift; one copy called twice cannot.
+name: Test matrix
+
+on:
+  workflow_call:
+
+env:
+  MIX_ENV: test
+
+jobs:
+  test:
+    name: Test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Floor of the `elixir: "~> 1.14"` requirement in mix.exs. If this row goes red, either
+          # fix it or raise the requirement — do not just drop it.
+          - elixir: "1.14.5"
+            otp: "25.3"
+          - elixir: "1.15.8"
+            otp: "26.2.5"
+          - elixir: "1.16.3"
+            otp: "26.2.5"
+          - elixir: "1.17.3"
+            otp: "27.2"
+          - elixir: "1.18.4"
+            otp: "27.2"
+          # Canary: latest everything with the lock file ignored, so an upstream release that
+          # breaks us shows up here rather than in someone's `mix deps.update`.
+          - elixir: "1.18.4"
+            otp: "27.2"
+            unlocked: true
+    continue-on-error: ${{ matrix.unlocked == true }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: actions/cache@v4
+        if: ${{ !matrix.unlocked }}
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-test-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
+
+      - name: Unlock dependencies
+        if: ${{ matrix.unlocked }}
+        run: rm -f mix.lock
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+      # The suite is fully async and exercises worker crashes, drains and canary splits. Running
+      # it repeatedly is how a race that only shows up one run in twenty gets caught here rather
+      # than in someone's CI.
+      - name: Stress the suite for flakiness
+        if: ${{ matrix.elixir == '1.18.4' && !matrix.unlocked }}
+        run: mix test --repeat-until-failure 20

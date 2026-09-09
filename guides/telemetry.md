@@ -9,6 +9,7 @@ prediction is wrapped in a span, and an unattached event costs a single ETS look
 [:ml_serve, :prediction, :start]
 [:ml_serve, :prediction, :stop]
 [:ml_serve, :prediction, :exception]
+[:ml_serve, :prediction, :rejected]
 [:ml_serve, :model, :load]
 [:ml_serve, :model, :unload]
 [:ml_serve, :cache, :hit]
@@ -53,16 +54,36 @@ Because `version` and `canary?` ride on every event, comparing a canary against 
 needs no extra instrumentation. That is what makes a promote-or-roll-back decision possible — see
 [Model Versioning](model-versioning.md).
 
-### `:exception` versus an error result
+### Telling a broken model from a working one
 
-- A backend that **raises** produces `[:ml_serve, :prediction, :exception]` with `kind`, `reason`
-  and `stacktrace`.
-- A backend that **returns** `{:error, reason}` produces a normal `:stop` event with
-  `result: :error`.
+Both a backend that **raises** and a backend that **returns** `{:error, reason}` produce a `:stop`
+event with `result: :error`. MLServe catches the raise at the backend boundary so it never escapes
+to the caller, which means the event alone cannot tell them apart. `:error_kind` does:
 
-The distinction is deliberate. An expected rejection is not an exception, and conflating them
-makes your error-rate dashboard useless: you cannot tell "the model declined this input" from "the
-model is broken".
+| `error_kind` | Meaning |
+| --- | --- |
+| `:raised` | The backend threw; MLServe wrapped it in a `MLServe.BackendError`. **A bug.** |
+| `:returned` | The backend deliberately returned an error. The model doing its job. |
+| `nil` | `result: :ok`. |
+
+The distinction matters because conflating them makes an error-rate dashboard useless: you cannot
+tell "the model declined this input" from "the model is broken". Tag your error-rate metric with
+`:error_kind` and alert only on `:raised`.
+
+`[:ml_serve, :prediction, :exception]` is a *different* event, and not the backend-crash one. It
+fires when your own `:preprocess` or `:postprocess` hook raises, because MLServe does not catch
+user hooks.
+
+### Requests that never reach a worker
+
+`:model_not_found`, `:model_not_ready`, `{:batch_too_large, max}` and `:overloaded` are decided
+before a span opens, so they emit **no `:start`/`:stop` pair at all**. They produce
+`[:ml_serve, :prediction, :rejected]` instead, with measurements `count` and `batch_size` and
+metadata `model`, `reason`, `batch?` and `version`.
+
+Watch it. Without this event, a model shedding half its traffic on `:max_concurrency` shows up as
+*fewer* predictions at an unchanged error rate — the shape of a healthy system, and the most
+dangerous way for an overloaded one to look.
 
 ## Lifecycle events
 
@@ -217,7 +238,10 @@ end
 | Condition | Meaning |
 | --- | --- |
 | `result: :error` rate rising for one `version` | A bad model — roll back the canary |
-| `prediction.exception` count > 0 | A backend bug; the stacktrace is in the metadata |
+| `result: :error` with `error_kind: :raised` | A backend bug; the exception is in the return value |
+| `prediction.rejected` with `reason: :overloaded` rising | Shedding load — the pool is too small or traffic grew |
+| `prediction.rejected` with `reason: :model_not_ready` | Requests arriving before a load finished, or after it failed |
+| `prediction.exception` count > 0 | A `:preprocess`/`:postprocess` hook is raising |
 | `queue_duration` p99 rising, `inference_duration` flat | Pool too small |
 | `inference_duration` p99 rising | Model or machine got slower |
 | `model.unload` with `drained > 0` | A deploy abandoned live requests |

@@ -12,11 +12,101 @@ defmodule MLServe.TelemetryTest do
       assert [:ml_serve, :prediction, :start] in events
       assert [:ml_serve, :prediction, :stop] in events
       assert [:ml_serve, :prediction, :exception] in events
+      assert [:ml_serve, :prediction, :rejected] in events
       assert [:ml_serve, :model, :load] in events
       assert [:ml_serve, :model, :unload] in events
       assert [:ml_serve, :cache, :hit] in events
       assert [:ml_serve, :cache, :miss] in events
       assert [:ml_serve, :batch, :flush] in events
+    end
+  end
+
+  describe "rejection events" do
+    @rejected [:ml_serve, :prediction, :rejected]
+
+    test "a shed request is visible, not merely absent" do
+      # The failure this guards against: under load shedding, the :stop counter *falls* and the
+      # error rate stays flat, so an overloaded model looks like a quiet healthy one.
+      ref = attach_telemetry([@rejected])
+
+      name =
+        load!(
+          backend: Backends.Slow,
+          workers: 1,
+          max_concurrency: 1,
+          config: [delay: 300, notify: self()],
+          timeout: 5_000
+        )
+
+      Task.async(fn -> MLServe.predict(name, :slow) end)
+      assert_receive {:predict_started, _worker}, 5_000
+
+      assert MLServe.predict(name, :shed) == {:error, :overloaded}
+
+      {measurements, metadata} = assert_telemetry(ref, @rejected, name)
+
+      assert measurements.count == 1
+      assert measurements.batch_size == 1
+      assert metadata.reason == :overloaded
+      assert metadata.version == "1.0.0"
+      refute metadata.batch?
+    end
+
+    test "an unknown model is reported, with no version to report" do
+      ref = attach_telemetry([@rejected])
+
+      assert MLServe.predict(:no_such_model_here, :x) == {:error, :model_not_found}
+
+      {_measurements, metadata} = assert_telemetry(ref, @rejected, :no_such_model_here)
+
+      assert metadata.reason == :model_not_found
+      assert is_nil(metadata.version)
+    end
+
+    test "an oversized batch is reported with the batch size that was refused" do
+      ref = attach_telemetry([@rejected])
+      name = load!(backend: Backends.Echo, max_batch_size: 3)
+
+      assert {:error, {:batch_too_large, 3}} =
+               MLServe.batch_predict(name, Enum.to_list(1..10))
+
+      {measurements, metadata} = assert_telemetry(ref, @rejected, name)
+
+      assert measurements.batch_size == 10
+      assert metadata.batch?
+      assert metadata.reason == {:batch_too_large, 3}
+    end
+  end
+
+  describe "error_kind on :stop" do
+    test "distinguishes a backend that raised from one that returned an error" do
+      ref = attach_telemetry([[:ml_serve, :prediction, :stop]])
+      raising = load!(backend: Backends.Crashing)
+      returning = load!(backend: MLServe.Backend.Static, config: [error: :out_of_domain])
+
+      assert {:error, {:backend_error, _}} = MLServe.predict(raising, :x)
+      assert MLServe.predict(returning, :x) == {:error, :out_of_domain}
+
+      {_m, raised} = assert_telemetry(ref, [:ml_serve, :prediction, :stop], raising)
+      {_m, returned} = assert_telemetry(ref, [:ml_serve, :prediction, :stop], returning)
+
+      assert raised.result == :error
+      assert raised.error_kind == :raised
+
+      assert returned.result == :error
+      assert returned.error_kind == :returned
+    end
+
+    test "is nil for a successful prediction" do
+      ref = attach_telemetry([[:ml_serve, :prediction, :stop]])
+      name = load!(backend: Backends.Echo)
+
+      MLServe.predict(name, :x)
+
+      {_measurements, metadata} = assert_telemetry(ref, [:ml_serve, :prediction, :stop], name)
+
+      assert metadata.result == :ok
+      assert is_nil(metadata.error_kind)
     end
   end
 

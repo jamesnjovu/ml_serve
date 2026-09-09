@@ -14,8 +14,15 @@ permissions:
   contents: write
 
 jobs:
+  # The release gate must not be weaker than the merge gate. Publishing 0.1.0 from a job that
+  # tested only Elixir 1.18.4 shipped a bug that every other supported version would have caught.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/test-matrix.yml
+
   publish:
     name: Publish to Hex
+    needs: verify
     runs-on: ubuntu-latest
     environment: hex
     steps:
@@ -40,11 +47,12 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      - name: Verify the tree is clean
+      # The full matrix already ran in `verify`; this is the lint half of `mix lint`, which the
+      # matrix does not cover.
+      - name: Lint
         run: |
           MIX_ENV=test mix deps.get
           MIX_ENV=test mix lint
-          MIX_ENV=test mix test
 
       - name: Publish docs only
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.docs_only }}

@@ -57,7 +57,7 @@ defmodule Latency do
 
   def handle_event(_event, measurements, metadata, _config) do
     :ets.insert(:latency, {
-      {metadata.model, metadata.result},
+      {metadata.model, metadata.error_kind || metadata.result},
       us(measurements.duration),
       us(measurements.queue_duration),
       us(measurements.inference_duration)
@@ -187,12 +187,64 @@ IO.puts("""
       callback        #{inspect(error.callback)}
       retryable?      #{MLServe.Error.retryable?(error)}
 
-    Both arrive as a :stop event with result: :error — MLServe catches the raise before it can
-    escape, so from telemetry's point of view a crash and a rejection look the same. Tell them
-    apart by the return value: only a raise carries a MLServe.BackendError.
+    Both arrive as a :stop event with result: :error — MLServe catches the raise at the backend
+    boundary, so neither escapes to the caller as an exception. The :error_kind metadata is what
+    tells them apart, and the distinction matters: :raised is a bug in the model, :returned is
+    the model doing its job.
 
-    :stop events recorded: #{Latency.count(:variable, :error)} with result: :error\
+    :stop with error_kind: :raised     #{Latency.count(:variable, :raised)}
+    :stop with error_kind: :returned   #{Latency.count(:variable, :returned)}\
 """)
+
+section.("Requests that never reach a worker")
+
+# A rejection happens before a span opens, so it produces no :start/:stop pair at all. Without
+# its own event, shedding would look like a *drop in traffic* rather than a problem — the most
+# dangerous way for an overloaded system to appear on a dashboard.
+:ets.new(:rejections, [:public, :named_table])
+
+defmodule Rejections do
+  def attach do
+    :telemetry.attach("rejected", [:ml_serve, :prediction, :rejected], &__MODULE__.handle/4, nil)
+  end
+
+  def handle(_event, _measurements, %{reason: reason}, _config) do
+    :ets.update_counter(:rejections, reason, {2, 1}, {reason, 0})
+    :ok
+  end
+end
+
+Rejections.attach()
+
+{:ok, _} =
+  MLServe.load_model(:capped,
+    backend: VariableModel,
+    workers: 1,
+    max_concurrency: 1,
+    max_batch_size: 4
+  )
+
+:ok = MLServe.await_ready(:capped)
+
+Task.async(fn -> MLServe.predict(:capped, :slow) end)
+Process.sleep(10)
+
+MLServe.predict(:capped, :fast)
+MLServe.predict(:no_such_model, :fast)
+MLServe.batch_predict(:capped, [1, 2, 3, 4, 5, 6])
+Process.sleep(80)
+
+for {reason, count} <- Enum.sort_by(:ets.tab2list(:rejections), &inspect(elem(&1, 0))) do
+  IO.puts("    #{String.pad_trailing(inspect(reason), 28)} #{count}")
+end
+
+IO.puts("""
+
+    None of these produced a :stop event, so none would appear in a latency dashboard. They are
+    counted by ml_serve.prediction.rejected.count instead.\
+""")
+
+MLServe.unload_model(:capped)
 
 section.("Telemetry.Metrics for LiveDashboard")
 

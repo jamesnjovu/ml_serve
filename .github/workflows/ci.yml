@@ -59,61 +59,40 @@ jobs:
       - run: mix dialyzer --format github
 
   test:
-    name: Test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
+    name: Test
+    uses: ./.github/workflows/test-matrix.yml
+
+  examples:
+    name: Examples
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Floor of the `elixir: "~> 1.14"` requirement in mix.exs. If this row goes red, either
-          # fix it or raise the requirement — do not just drop it.
-          - elixir: "1.14.5"
-            otp: "25.3"
-          - elixir: "1.15.8"
-            otp: "26.2.5"
-          - elixir: "1.16.3"
-            otp: "26.2.5"
-          - elixir: "1.17.3"
-            otp: "27.2"
-          - elixir: "1.18.4"
-            otp: "27.2"
-          # Canary: latest everything with the lock file ignored, so an upstream release that
-          # breaks us shows up here rather than in someone's `mix deps.update`.
-          - elixir: "1.18.4"
-            otp: "27.2"
-            unlocked: true
-    continue-on-error: ${{ matrix.unlocked == true }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: erlef/setup-beam@v1
-        id: beam
         with:
-          elixir-version: ${{ matrix.elixir }}
-          otp-version: ${{ matrix.otp }}
+          elixir-version: "1.18.4"
+          otp-version: "26.2.5"
 
-      - uses: actions/cache@v4
-        if: ${{ !matrix.unlocked }}
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-test-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
+      # README, llms.txt and usage-rules.md all tell readers — and coding agents — that this code
+      # is verified. That claim decays silently on the first API change unless something runs it.
+      - name: Run every example script
+        run: |
+          set -e
+          for script in examples/scripts/*.exs; do
+            echo "::group::$script"
+            elixir "$script"
+            echo "::endgroup::"
+          done
 
-      - name: Unlock dependencies
-        if: ${{ matrix.unlocked }}
-        run: rm -f mix.lock
+      - name: The example service must build and pass its own suite
+        working-directory: examples/inference_service
+        run: |
+          mix deps.get
+          MIX_ENV=test mix test
 
-      - run: mix deps.get
-      - run: mix compile --warnings-as-errors
-      - run: mix test
-
-      # The suite is fully async and exercises worker crashes, drains and canary splits. Running
-      # it repeatedly is how a race that only shows up one run in twenty gets caught here rather
-      # than in someone's CI.
-      - name: Stress the suite for flakiness
-        if: ${{ matrix.elixir == '1.18.4' && !matrix.unlocked }}
-        run: mix test --repeat-until-failure 20
+      # examples/onnx is deliberately excluded: Ortex needs a Rust toolchain and
+      # sentence_embeddings.exs downloads 90 MB from HuggingFace. Those belong in a scheduled
+      # job, not on every push.
 
   package:
     name: Package contents
