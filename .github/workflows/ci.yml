@@ -133,7 +133,7 @@ jobs:
       - name: Assert the tarball contents
         run: |
           set -e
-          for forbidden in test config .github priv/plts doc dev; do
+          for forbidden in test config .github priv/plts doc dev examples; do
             if [ -e "/tmp/pkg/$forbidden" ]; then
               echo "::error::$forbidden was published but should be excluded"
               exit 1

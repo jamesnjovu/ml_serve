@@ -304,6 +304,20 @@ Full documentation is on [HexDocs](https://hexdocs.pm/ml_serve), including guide
 [Model Versioning](guides/model-versioning.md), [Phoenix](guides/phoenix-integration.md),
 [Oban](guides/oban-integration.md) and [Production Deployment](guides/production-deployment.md).
 
+### Examples
+
+[`examples/`](https://github.com/jamesnjovu/ml_serve/tree/main/examples) has runnable code for
+everything above — it lives on GitHub rather than in the Hex package:
+
+* **[Seven scripts](https://github.com/jamesnjovu/ml_serve/tree/main/examples/scripts)**, one
+  command each, covering concurrency, batching, caching, versioning, telemetry and the full error
+  taxonomy: `elixir examples/scripts/01_quick_start.exs`
+* **[Three Livebook notebooks](https://github.com/jamesnjovu/ml_serve/tree/main/examples/notebooks)**
+  for the same ground, interactively.
+* **[An HTTP inference service](https://github.com/jamesnjovu/ml_serve/tree/main/examples/inference_service)**
+  on Bandit and Plug — models declared in configuration, both execution strategies, and a full
+  mapping from MLServe's error taxonomy onto HTTP status codes.
+
 ### For AI assistants and LLM tooling
 
 [`usage-rules.md`](https://github.com/jamesnjovu/ml_serve/blob/main/usage-rules.md) is a condensed,

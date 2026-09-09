@@ -21,6 +21,8 @@ ml_serve-*.tar
 /.elixir_ls/
 /.lexical/
 .DS_Store
-
+mix.lock
 # Test fixtures written into the configured :model_root
 /priv/models/
+/examples/inference_service/_build/
+/examples/inference_service/deps/

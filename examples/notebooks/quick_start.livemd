@@ -1,0 +1,181 @@
+# MLServe: Quick Start
+
+```elixir
+Mix.install([
+  # Running from a clone of the repo. Against the published package this is:
+  #   {:ml_serve, "~> 0.1.0"}
+  {:ml_serve, path: Path.expand("../..", __DIR__)},
+  {:kino, "~> 0.14"}
+])
+```
+
+## What this is
+
+MLServe is the runtime layer around a model, not a modelling library. It does not train, it does
+not own a tensor type, and it does not wrap an LLM HTTP API. It supplies the parts every team
+ends up rebuilding by hand when a model goes into a Phoenix application: supervision, worker
+pools, batching, caching, telemetry, versioning and safe rollout.
+
+This notebook takes about five minutes. By the end you will have loaded a model, served
+predictions from it, read its live operational status and unloaded it — with nothing installed
+beyond `:telemetry`.
+
+## A model is two functions
+
+The entire `MLServe.Model` behaviour is `load/1` and `predict/2`. Everything else —
+`batch_predict/2`, `unload/1`, `metadata/1`, `capabilities/0` — is optional and detected at load
+time with `function_exported?/3`.
+
+There is no ML runtime below. That is the point: MLServe cannot tell the difference between a
+neural network and an `if` statement, and applies the same pooling, batching, caching and
+versioning to both.
+
+```elixir
+defmodule FraudModel do
+  @behaviour MLServe.Model
+
+  @impl true
+  def load(config) do
+    # Whatever load/1 returns becomes the state passed to every predict/2 call. A real backend
+    # opens its ONNX session or builds its Nx.Serving here, so the cost is paid once at load
+    # rather than once per request.
+    {:ok, %{threshold: Keyword.fetch!(config, :threshold)}}
+  end
+
+  @impl true
+  def predict(%{threshold: threshold}, features) do
+    %{amount: amount} = features
+    failed = Map.get(features, :failed_transactions_24h, 0)
+
+    probability =
+      (amount / 2_000 + failed * 0.05)
+      |> min(1.0)
+      |> Float.round(4)
+
+    {:ok,
+     %{
+       prediction: if(probability > threshold, do: :fraud, else: :legitimate),
+       probability: probability
+     }}
+  end
+
+  # Optional. Surfaces under :metadata in MLServe.model_status/2 — a good place to record what
+  # the model was trained on.
+  @impl true
+  def metadata(%{threshold: threshold}) do
+    %{threshold: threshold, features: [:amount, :failed_transactions_24h]}
+  end
+end
+```
+
+## Loading it
+
+Models can be declared in `config :ml_serve, :models` or loaded at runtime. Both go through the
+same validation and the same code path — configuration is not a privileged route.
+
+`load_model/2` returns as soon as the model is **registered**. Loading itself proceeds in the
+background under `handle_continue/2`, so a thirty-second model load never blocks application
+boot. That is why `await_ready/2` exists, and why a real service exposes a readiness endpoint
+rather than assuming.
+
+```elixir
+{:ok, {name, version}} =
+  MLServe.load_model(:fraud_detection,
+    backend: FraudModel,
+    version: "1.0.0",
+    workers: 4,
+    config: [threshold: 0.7]
+  )
+
+:ok = MLServe.await_ready(:fraud_detection)
+
+{name, version, MLServe.ready?(:fraud_detection)}
+```
+
+## Predicting
+
+`predict/3` returns `{:ok, result}` or `{:error, reason}` and never raises for an expected
+failure, so it composes with `with`. `predict!/3` raises `MLServe.Error` instead, for the places
+where you would only re-raise anyway.
+
+```elixir
+MLServe.predict(:fraud_detection, %{
+  amount: 1500.50,
+  transaction_count_24h: 8,
+  failed_transactions_24h: 2
+})
+```
+
+Try a few amounts at once and look at where the threshold bites:
+
+```elixir
+[10.0, 500.0, 1_200.0, 1_500.0, 2_500.0]
+|> Enum.map(fn amount ->
+  {:ok, result} = MLServe.predict(:fraud_detection, %{amount: amount})
+  %{amount: amount, prediction: result.prediction, probability: result.probability}
+end)
+|> Kino.DataTable.new()
+```
+
+## Many inputs at once
+
+`batch_predict/3` hands the whole list to the backend in one call when it implements
+`batch_predict/2`, and otherwise maps `predict/2` over it. Your call site does not change either
+way — which means adding `batch_predict/2` to a backend later is a pure optimisation, invisible
+to callers.
+
+```elixir
+{:ok, results} =
+  MLServe.batch_predict(:fraud_detection, [
+    %{amount: 10.0},
+    %{amount: 900.0},
+    %{amount: 5_000.0}
+  ])
+
+results
+```
+
+## Operational status
+
+`requests`, `errors` and `in_flight` come from atomic counters written on the hot path. Reading
+them asks no process anything, so a `/health` endpoint can call this on every request without a
+second thought.
+
+```elixir
+{:ok, status} = MLServe.model_status(:fraud_detection)
+
+Kino.DataTable.new([
+  %{field: "status", value: inspect(status.status)},
+  %{field: "backend", value: inspect(status.backend)},
+  %{field: "concurrency", value: inspect(status.concurrency)},
+  %{field: "workers", value: inspect(status.workers)},
+  %{field: "requests", value: inspect(status.requests)},
+  %{field: "errors", value: inspect(status.errors)},
+  %{field: "in flight", value: inspect(status.in_flight)},
+  %{field: "loaded in", value: "#{status.load_duration_ms}ms"},
+  %{field: "default?", value: inspect(status.default?)},
+  %{field: "metadata", value: inspect(status.metadata)}
+])
+```
+
+## Unloading
+
+`unload_model/2` waits up to the model's `:drain_timeout` for in-flight requests to finish before
+tearing its supervision subtree down.
+
+```elixir
+:ok = MLServe.unload_model(:fraud_detection)
+
+MLServe.predict(:fraud_detection, %{amount: 1.0})
+```
+
+## Where to go next
+
+* **[Versioning and canary rollout](versioning_and_canary.livemd)** — two versions side by side,
+  percentage traffic splits, and promotion without a deploy.
+* **[Batching and caching](batching_and_caching.livemd)** — coalescing concurrent callers into
+  one backend call, and skipping inference you have already done.
+* **[`examples/inference_service`](../inference_service)** — the same ideas as a real HTTP
+  service, including the MLServe-error-to-HTTP-status mapping worth stealing.
+* **`examples/scripts`** — seven runnable scripts covering concurrency, telemetry and the full
+  error taxonomy.
