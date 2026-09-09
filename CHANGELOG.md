@@ -5,7 +5,11 @@ All notable changes to the MLServe library will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.1] - 2026-09-09
+## [0.1.3] - 2026-09-09
+
+> Supersedes 0.1.1 and 0.1.2, which were tagged but never published: each tag pointed at a commit
+> whose `mix.exs` version did not match it, so the release guard in `publish.yml` rejected them
+> before anything reached Hex. Everything intended for those versions is included here.
 
 ### Fixed
 
@@ -23,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than on the path. Containment is now decided on the expanded path before the file is touched
   and re-checked after symlink resolution, so a path outside `:model_root` is always rejected as
   `:outside_root` — and MLServe no longer stats a caller-supplied path outside the root.
+
+### Changed
+
+- Package description now leads with "Serve machine learning models in Elixir" rather than
+  "BEAM", and names Phoenix — matching how people actually search for this.
+
+- `README.md` gained a "Common questions" section and a plain-prose "Works with" line naming Nx,
+  Bumblebee, Ortex and Phoenix, none of which previously appeared as indexable text.
+
+- `llms.txt` and `usage-rules.md` now point at the runnable examples in `examples/`, so coding
+  agents cite verified working code rather than inventing snippets.
 
 ## [0.1.0] - 2026-08-24
 
